@@ -1,0 +1,964 @@
+<html><head><base href="/">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Market Bubbles</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.17.1/matter.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+:root {
+  --background: #0a0b1e;
+  --text-primary: #ffffff;
+  --text-secondary: #8a8d9f;
+  --glow: 0 0 15px rgba(255,255,255,0.15);
+  --crypto-color: #ff9b3d;
+  --stocks-color: #4287f5;
+  --forex-color: #42f5a4;
+  --indices-color: #8342f5;
+  --glow-intensity: 15px;
+  --glow-up: 0 0 30px rgba(76, 175, 80, 0.4);
+  --glow-down: 0 0 30px rgba(244, 67, 54, 0.4);
+  --bubble-bg-up: rgba(76, 175, 80, 0.15);
+  --bubble-bg-down: rgba(244, 67, 54, 0.15);
+  --bubble-border-up: rgba(76, 175, 80, 0.5);
+  --bubble-border-down: rgba(244, 67, 54, 0.5);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: 'Inter', sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--background);
+  overflow: hidden;
+}
+
+#gameCanvas {
+  width: 100%;
+  height: 100vh;
+  display: block;
+}
+
+.modal {
+  display: none;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(20, 22, 42, 0.95);
+  border-radius: 20px;
+  padding: 20px;
+  width: 90%;
+  max-width: 600px;
+  z-index: 1000;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 0 30px rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text-primary);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.modal.active {
+  display: block;
+  animation: modalFadeIn 0.3s ease-out;
+}
+
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  padding-bottom: 15px;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 1.5em;
+  cursor: pointer;
+  padding: 5px;
+  transition: all 0.2s;
+}
+
+.close-btn:hover {
+  color: var(--text-secondary);
+  transform: rotate(90deg);
+}
+
+.filters {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  gap: 10px;
+  background: rgba(20, 22, 42, 0.8);
+  padding: 15px;
+  border-radius: 20px;
+  backdrop-filter: blur(10px);
+  box-shadow: var(--glow);
+}
+
+.filter-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 15px;
+  background: rgba(255,255,255,0.1);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.3s;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.filter-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--glow);
+}
+
+.filter-btn.active {
+  background: rgba(255,255,255,0.2);
+  box-shadow: var(--glow);
+}
+
+.filter-btn[data-type="crypto"].active {
+  background: var(--crypto-color);
+}
+
+.filter-btn[data-type="stocks"].active {
+  background: var(--stocks-color);
+}
+
+.filter-btn[data-type="forex"].active {
+  background: var(--forex-color);
+}
+
+.filter-btn[data-type="indices"].active {
+  background: var(--indices-color);
+}
+
+.advanced-filters {
+  position: fixed;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(20, 22, 42, 0.8);
+  padding: 15px;
+  border-radius: 20px;
+  backdrop-filter: blur(10px);
+  box-shadow: var(--glow);
+}
+
+.search-input, .filter-select {
+  padding: 8px 12px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.05);
+  color: var(--text-primary);
+}
+
+.filter-groups {
+  display: flex;
+  gap: 10px;
+}
+
+#priceChart {
+  margin-top: 20px;
+  width: 100%;
+  height: 200px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.asset-info {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 15px;
+  margin: 20px 0;
+}
+
+.asset-details {
+  margin: 20px 0;
+}
+
+.price-info {
+  display: flex;
+  justify-content: space-between;
+}
+
+.price-change,
+.price-change-percent {
+  margin-left: 10px;
+}
+
+.market-stats {
+  display: flex;
+  justify-content: space-between;
+}
+
+.high-low {
+  display: flex;
+  gap: 10px;
+}
+
+.trend-indicators {
+  display: flex;
+  justify-content: space-between;
+}
+
+.info-item {
+  background: rgba(255,255,255,0.05);
+  padding: 15px;
+  border-radius: 10px;
+  text-align: center;
+  transition: background-color 0.3s ease;
+}
+
+.info-item:hover {
+  background: rgba(255,255,255,0.1);
+}
+
+.info-label {
+  color: var(--text-secondary);
+  font-size: 0.9em;
+  margin-bottom: 5px;
+}
+
+.info-value {
+  color: var(--text-primary);
+  font-size: 1.2em;
+  font-weight: 600;
+}
+
+.bubble-text {
+  position: absolute;
+  font-family: 'Inter', sans-serif;
+  color: white;
+  text-align: center;
+  pointer-events: none;
+  user-select: none;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.bubble-up {
+  box-shadow: 0 0 15px rgba(76, 175, 80, 0.5);
+  border: 2px solid #4CAF50;
+}
+
+.bubble-down {
+  box-shadow: 0 0 15px rgba(244, 67, 54, 0.5);
+  border: 2px solid #f44336;
+}
+
+.bubble {
+  transition: all 0.3s ease;
+  animation: pulse 2s infinite, glow 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+@keyframes glow {
+  0% { filter: brightness(1); }
+  50% { filter: brightness(1.2); }
+  100% { filter: brightness(1); }
+}
+
+.bubble.price-alert {
+  animation: alert-pulse 0.5s infinite;
+}
+
+@keyframes alert-pulse {
+  0% { transform: scale(1); filter: brightness(1); }
+  50% { transform: scale(1.1); filter: brightness(1.5); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
+</style>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&amp;display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="filters">
+  <button class="filter-btn active" data-type="all">All</button>
+  <button class="filter-btn" data-type="stocks">Stocks</button>
+  <button class="filter-btn" data-type="crypto">Crypto</button>
+  <button class="filter-btn" data-type="forex">Forex</button>
+  <button class="filter-btn" data-type="indices">Indices</button>
+</div>
+
+<div class="advanced-filters">
+  <input type="text" id="search" placeholder="Search assets..." class="search-input">
+  <div class="filter-groups">
+    <select id="countryFilter" class="filter-select">
+      <option value="">All Countries</option>
+      <option value="US">United States</option>
+      <option value="EU">Europe</option>
+      <option value="AS">Asia</option>
+    </select>
+    <select id="sectorFilter" class="filter-select">
+      <option value="">All Sectors</option>
+      <option value="tech">Technology</option>
+      <option value="finance">Finance</option>
+      <option value="health">Healthcare</option>
+    </select>
+    <select id="liquidityFilter" class="filter-select">
+      <option value="">All Volumes</option>
+      <option value="high">High Volume</option>
+      <option value="medium">Medium Volume</option>
+      <option value="low">Low Volume</option>
+    </select>
+  </div>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<div class="modal" id="modal">
+  <div class="modal-header">
+    <h2 id="asset-name"></h2>
+    <button class="close-btn" id="close-btn">×</button>
+  </div>
+  <div class="modal-content">
+    <div class="asset-details">
+      <div class="price-info">
+        <span class="current-price" id="asset-price"></span>
+        <span class="price-change" id="asset-change"></span>
+        <span class="price-change-percent" id="percent-change"></span>
+      </div>
+      <div class="market-stats">
+        <div class="market-cap" id="asset-marketcap"></div>
+        <div class="volume-24h" id="asset-volume"></div>
+        <div class="high-low">
+          <span class="high" id="asset-high"></span>
+          <span class="low" id="asset-low"></span>
+        </div>
+      </div>
+      <div class="trend-indicators">
+        <div class="rsi" id="asset-rsi"></div>
+        <div class="macd" id="asset-macd"></div>
+        <div class="volume-profile" id="asset-volume-profile"></div>
+      </div>
+    </div>
+    <div class="asset-info">
+      <div class="info-item">
+        <div class="info-label">RSI</div>
+        <div class="info-value" id="asset-rsi"></div>
+      </div>
+      <div class="info-item">
+        <div class="info-label">MACD</div>
+        <div class="info-value" id="asset-macd"></div>
+      </div>
+      <div class="info-item">
+        <div class="info-label">Volume Profile</div>
+        <div class="info-value" id="asset-volume-profile"></div>
+      </div>
+    </div>
+    <canvas id="priceChart"></canvas>
+  </div>
+</div>
+
+<script>
+const API_CONFIG = {
+  cryptoAPI: 'https://api.binance.com/api/v3',
+  stocksAPI: 'https://www.alphavantage.co/query',
+  forexAPI: 'https://api.exchangerate-api.com/v4',
+  indices: 'https://api.marketstack.com/v1'
+};
+
+const REFRESH_INTERVALS = {
+  priceUpdate: 1000,
+  trendUpdate: 15000,
+  chartUpdate: 60000
+};
+
+const API_KEY = '2MFET0MBYWZT1OID';
+const assets = [
+  // Stocks (40 assets)
+  { symbol: 'AAPL', name: 'Apple', type: 'stocks' },
+  { symbol: 'MSFT', name: 'Microsoft', type: 'stocks' },
+  { symbol: 'GOOGL', name: 'Google', type: 'stocks' },
+  { symbol: 'AMZN', name: 'Amazon', type: 'stocks' },
+  { symbol: 'TSLA', name: 'Tesla', type: 'stocks' },
+  { symbol: 'FB', name: 'Facebook', type: 'stocks' },
+  { symbol: 'NFLX', name: 'Netflix', type: 'stocks' },
+  { symbol: 'NVDA', name: 'Nvidia', type: 'stocks' },
+  { symbol: 'V', name: 'Visa', type: 'stocks' },
+  { symbol: 'PYPL', name: 'PayPal', type: 'stocks' },
+  { symbol: 'INTC', name: 'Intel', type: 'stocks' },
+  { symbol: 'ADBE', name: 'Adobe', type: 'stocks' },
+  { symbol: 'CSCO', name: 'Cisco', type: 'stocks' },
+  { symbol: 'CMCSA', name: 'Comcast', type: 'stocks' },
+  { symbol: 'T', name: 'AT&T', type: 'stocks' },
+  { symbol: 'NFLX', name: 'Netflix', type: 'stocks' },
+  { symbol: 'VZ', name: 'Verizon', type: 'stocks' },
+  { symbol: 'WMT', name: 'Walmart', type: 'stocks' },
+  { symbol: 'PFE', name: 'Pfizer', type: 'stocks' },
+  { symbol: 'MRK', name: 'Merck', type: 'stocks' },
+  { symbol: 'NKE', name: 'Nike', type: 'stocks' },
+  { symbol: 'BKNG', name: 'Booking Holdings', type: 'stocks' },
+  { symbol: 'XOM', name: 'Exxon Mobil', type: 'stocks' },
+  { symbol: 'AVGO', name: 'Broadcom', type: 'stocks' },
+  { symbol: 'QCOM', name: 'Qualcomm', type: 'stocks' },
+  { symbol: 'LMT', name: 'Lockheed Martin', type: 'stocks' },
+  { symbol: 'NEM', name: 'Newmont', type: 'stocks' },
+  { symbol: 'COP', name: 'ConocoPhillips', type: 'stocks' },
+  { symbol: 'MMM', name: '3M', type: 'stocks' },
+  { symbol: 'TGT', name: 'Target', type: 'stocks' },
+  { symbol: 'MDT', name: 'Medtronic', type: 'stocks' },
+  { symbol: 'IBM', name: 'IBM', type: 'stocks' },
+  { symbol: 'BA', name: 'Boeing', type: 'stocks' },
+  { symbol: 'GS', name: 'Goldman Sachs', type: 'stocks' },
+  { symbol: 'CAT', name: 'Caterpillar', type: 'stocks' },
+  { symbol: 'DHR', name: 'Danaher', type: 'stocks' },
+  { symbol: 'HON', name: 'Honeywell', type: 'stocks' },
+  { symbol: 'SLB', name: 'Schlumberger', type: 'stocks' },
+  { symbol: 'BLK', name: 'BlackRock', type: 'stocks' },
+  { symbol: 'SYK', name: 'Stryker', type: 'stocks' },
+  { symbol: 'SPGI', name: 'S&P Global', type: 'stocks' },
+  { symbol: 'ZTS', name: 'Zoetis', type: 'stocks' },
+  
+  // Crypto (25 assets)
+  { symbol: 'BTC', name: 'Bitcoin', type: 'crypto' },
+  { symbol: 'ETH', name: 'Ethereum', type: 'crypto' },
+  { symbol: 'BNB', name: 'Binance Coin', type: 'crypto' },
+  { symbol: 'XRP', name: 'Ripple', type: 'crypto' },
+  { symbol: 'ADA', name: 'Cardano', type: 'crypto' },
+  { symbol: 'SOL', name: 'Solana', type: 'crypto' },
+  { symbol: 'DOGE', name: 'Dogecoin', type: 'crypto' },
+  { symbol: 'DOT', name: 'Polkadot', type: 'crypto' },
+  { symbol: 'LTC', name: 'Litecoin', type: 'crypto' },
+  { symbol: 'LINK', name: 'Chainlink', type: 'crypto' },
+  { symbol: 'MATIC', name: 'Polygon', type: 'crypto' },
+  { symbol: 'TRX', name: 'TRON', type: 'crypto' },
+  { symbol: 'SHIB', name: 'Shiba Inu', type: 'crypto' },
+  { symbol: 'AVAX', name: 'Avalanche', type: 'crypto' },
+  { symbol: 'VET', name: 'VeChain', type: 'crypto' },
+  { symbol: 'MANA', name: 'Decentraland', type: 'crypto' },
+  { symbol: 'SAND', name: 'The Sandbox', type: 'crypto' },
+  { symbol: 'ICP', name: 'Internet Computer', type: 'crypto' },
+  { symbol: 'FIL', name: 'Filecoin', type: 'crypto' },
+  { symbol: 'AXS', name: 'Axie Infinity', type: 'crypto' },
+  { symbol: 'CHZ', name: 'Chiliz', type: 'crypto' },
+  { symbol: 'FTM', name: 'Fantom', type: 'crypto' },
+  { symbol: 'HBAR', name: 'Hedera', type: 'crypto' },
+  { symbol: 'KSM', name: 'Kusama', type: 'crypto' },
+  { symbol: 'ZIL', name: 'Zilliqa', type: 'crypto' },
+  { symbol: 'EGLD', name: 'Elrond', type: 'crypto' },
+  
+  // Forex (20 assets)
+  { symbol: 'EUR/USD', name: 'Euro/USD', type: 'forex' },
+  { symbol: 'GBP/USD', name: 'Pound/USD', type: 'forex' },
+  { symbol: 'JPY/USD', name: 'Yen/USD', type: 'forex' },
+  { symbol: 'AUD/USD', name: 'Australian Dollar/USD', type: 'forex' },
+  { symbol: 'CAD/USD', name: 'Canadian Dollar/USD', type: 'forex' },
+  { symbol: 'CHF/USD', name: 'Swiss Franc/USD', type: 'forex' },
+  { symbol: 'NZD/USD', name: 'New Zealand Dollar/USD', type: 'forex' },
+  { symbol: 'USD/SGD', name: 'US Dollar/Singapore Dollar', type: 'forex' },
+  { symbol: 'USD/HKD', name: 'US Dollar/Hong Kong Dollar', type: 'forex' },
+  { symbol: 'USD/TRY', name: 'US Dollar/Turkish Lira', type: 'forex' },
+  { symbol: 'USD/INR', name: 'US Dollar/Indian Rupee', type: 'forex' },
+  { symbol: 'USD/BRL', name: 'US Dollar/Brazilian Real', type: 'forex' },
+  { symbol: 'USD/MXN', name: 'US Dollar/Mexican Peso', type: 'forex' },
+  { symbol: 'USD/ZAR', name: 'US Dollar/South African Rand', type: 'forex' },
+  { symbol: 'USD/THB', name: 'US Dollar/Thai Baht', type: 'forex' },
+  { symbol: 'USD/RUB', name: 'US Dollar/Russian Ruble', type: 'forex' },
+  { symbol: 'EUR/GBP', name: 'Euro/Pound', type: 'forex' },
+  { symbol: 'EUR/CHF', name: 'Euro/Swiss Franc', type: 'forex' },
+  { symbol: 'AUD/CAD', name: 'Australian Dollar/Canadian Dollar', type: 'forex' },
+  { symbol: 'AUD/JPY', name: 'Australian Dollar/Yen', type: 'forex' },
+
+  // Indices (15 assets)
+  { symbol: 'SPX', name: 'S&P 500', type: 'indices' },
+  { symbol: 'DJI', name: 'Dow Jones', type: 'indices' },
+  { symbol: 'NDX', name: 'Nasdaq 100', type: 'indices' },
+  { symbol: 'FTSE', name: 'FTSE 100', type: 'indices' },
+  { symbol: 'DAX', name: 'DAX', type: 'indices' },
+  { symbol: 'NIKKEI', name: 'Nikkei 225', type: 'indices' },
+  { symbol: 'CAC', name: 'CAC 40', type: 'indices' },
+  { symbol: 'IBEX', name: 'IBEX 35', type: 'indices' },
+  { symbol: 'ASX', name: 'ASX 200', type: 'indices' },
+  { symbol: 'HANGSENG', name: 'Hang Seng', type: 'indices' },
+  { symbol: 'SES', name: 'SES Singapore', type: 'indices' },
+  { symbol: 'TAIEX', name: 'TAIEX', type: 'indices' },
+  { symbol: 'BSE', name: 'BSE Sensex', type: 'indices' },
+  { symbol: 'KOSPI', name: 'KOSPI', type: 'indices' },
+  { symbol: 'MSE', name: 'MSE', type: 'indices' }
+].map(asset => ({
+  ...asset,
+  currentPrice: 0,
+  volume: 0,
+  change: 0,
+  percentChange: 0,
+  prices: [],
+  marketCap: 0,
+  high: 0,
+  low: 0,
+  rsi: 0,
+  macd: 0,
+  volumeProfile: 0
+}));
+
+class BubbleMarket {
+  constructor() {
+    this.Matter = Matter;
+    this.Engine = Matter.Engine;
+    this.Render = Matter.Render;
+    this.World = Matter.World;
+    this.Bodies = Matter.Bodies;
+    this.Mouse = Matter.Mouse;
+    this.MouseConstraint = Matter.MouseConstraint;
+
+    this.engine = this.Engine.create({
+      enableSleeping: false,
+      timing: {
+        timeScale: 0.5
+      }
+    });
+    this.world = this.engine.world;
+    this.world.gravity.y = 0;
+
+    const centerAttractor = this.Bodies.circle(
+      window.innerWidth / 2, 
+      window.innerHeight / 2, 
+      1, 
+      { isStatic: true, isSensor: true }
+    );
+
+    Matter.World.add(this.world, centerAttractor);
+
+    this.canvas = document.getElementById("gameCanvas");
+    this.modal = document.getElementById("modal");
+    this.closeBtn = document.getElementById("close-btn");
+
+    this.render = this.Render.create({
+      element: document.body,
+      canvas: this.canvas,
+      engine: this.engine,
+      options: {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        wireframes: false,
+        background: "#0a0b1e"
+      }
+    });
+
+    this.mouse = this.Mouse.create(this.canvas);
+    this.mouseConstraint = this.MouseConstraint.create(this.engine, {
+      mouse: this.mouse,
+      constraint: {
+        stiffness: 0.2,
+        render: { visible: false }
+      }
+    });
+
+    this.createBoundaries();
+    this.Render.run(this.render);
+    this.Engine.run(this.engine);
+    this.World.add(this.world, this.mouseConstraint);
+
+    this.bubbles = new Map();
+    this.setupEventListeners();
+    this.createInitialBubbles();
+    this.updateAssetData();
+    this.startDataRefresh();
+
+    this.closeBtn.addEventListener('click', () => {
+      this.modal.classList.remove('active');
+    });
+
+    Matter.Events.on(this.engine, 'beforeUpdate', () => {
+      const bodies = Matter.Composite.allBodies(this.world);
+      bodies.forEach(body => {
+        if (body.label && body.label !== 'attractor') {
+          const force = {
+            x: (window.innerWidth / 2 - body.position.x) * 0.000015,
+            y: (window.innerHeight / 2 - body.position.y) * 0.000015
+          };
+          Matter.Body.applyForce(body, body.position, force);
+        }
+      });
+    });
+  }
+
+  createBoundaries() {
+    const walls = [
+      this.Bodies.rectangle(window.innerWidth/2, -10, window.innerWidth, 20, { isStatic: true }),
+      this.Bodies.rectangle(window.innerWidth/2, window.innerHeight+10, window.innerWidth, 20, { isStatic: true }),
+      this.Bodies.rectangle(-10, window.innerHeight/2, 20, window.innerHeight, { isStatic: true }),
+      this.Bodies.rectangle(window.innerWidth+10, window.innerHeight/2, 20, window.innerHeight, { isStatic: true })
+    ];
+    this.World.add(this.world, walls);
+  }
+
+  createBubble(asset) {
+    const minRadius = 30;
+    const maxRadius = 100;
+
+    const marketCapScale = Math.min(asset.marketCap / 1e12, 1);
+    const radius = minRadius + (marketCapScale * (maxRadius - minRadius));
+
+    const centerX = window.innerWidth / 2;
+    const centerY = window.innerHeight / 2;
+    const spread = Math.min(window.innerWidth, window.innerHeight) * 0.4;
+
+    const angle = Math.random() * Math.PI * 2;
+    const distance = Math.random() * spread;
+
+    const x = centerX + Math.cos(angle) * distance;
+    const y = centerY + Math.sin(angle) * distance;
+
+    const bubble = this.Bodies.circle(x, y, radius, {
+      render: {
+        fillStyle: 'rgba(255,255,255,0.1)',
+        strokeStyle: asset.percentChange >= 0 ? '#4CAF50' : '#f44336',
+        lineWidth: 2
+      },
+      restitution: 0.8,
+      friction: 0.001,
+      frictionAir: 0.02 + (1 - marketCapScale) * 0.08,
+      label: asset.symbol,
+      isHovered: false
+    });
+
+    Matter.Events.on(this.render, 'afterRender', () => {
+      const ctx = this.render.context;
+      if (bubble.render.visible !== false) {
+        ctx.save();
+        ctx.translate(bubble.position.x, bubble.position.y);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '14px Inter';
+        
+        ctx.fillText(asset.symbol, 0, -10);
+        
+        const price = `$${asset.currentPrice.toFixed(2)}`;
+        ctx.font = '12px Inter';
+        ctx.fillText(price, 0, 10);
+        
+        ctx.restore();
+      }
+    });
+
+    this.World.add(this.world, bubble);
+    this.bubbles.set(asset.symbol, bubble);
+  }
+
+  setupEventListeners() {
+    Matter.Events.on(this.mouseConstraint, 'mousedown', (event) => {
+      const clickedBody = event.source.body;
+      if (clickedBody) {
+        const asset = assets.find(a => a.symbol === clickedBody.label);
+        if (asset) {
+          this.showAssetDetails(asset);
+        }
+      }
+    });
+
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => this.filterBubbles(e.target));
+    });
+  }
+
+  async createInitialBubbles() {
+    assets.forEach(asset => {
+      this.createBubble(asset);
+    });
+  }
+
+  async updateAssetData() {
+    for (let asset of assets) {
+      try {
+        const mockData = this.generateMockData(asset);
+        asset.currentPrice = mockData.currentPrice;
+        asset.volume = mockData.volume;
+        asset.change = mockData.change;
+        asset.percentChange = mockData.percentChange;
+        asset.prices = mockData.prices;
+        asset.marketCap = mockData.marketCap;
+        asset.high = mockData.high;
+        asset.low = mockData.low;
+        asset.rsi = mockData.rsi;
+        asset.macd = mockData.macd;
+        asset.volumeProfile = mockData.volumeProfile;
+
+        const bubble = this.bubbles.get(asset.symbol);
+        if (bubble) {
+          bubble.render.strokeStyle = asset.percentChange >= 0 ? '#4CAF50' : '#f44336';
+          
+          const marketCapScale = Math.min(asset.marketCap / 1e12, 1);
+          const newRadius = 30 + (marketCapScale * 70);
+          const scale = newRadius / bubble.circleRadius;
+          Matter.Body.scale(bubble, scale, scale);
+          
+          bubble.frictionAir = 0.02 + (1 - marketCapScale) * 0.08;
+        }
+      } catch (error) {
+        console.error(`Error updating ${asset.symbol}:`, error);
+      }
+    }
+  }
+
+  generateMockData(asset) {
+    const volatility = 0.02;
+    const basePrice = (() => {
+      switch(asset.type) {
+        case 'forex': return 1 + Math.random() * 2;
+        case 'crypto': return 100 + Math.random() * 50000;
+        case 'stocks': return 10 + Math.random() * 990;
+        case 'indices': return 1000 + Math.random() * 29000;
+        default: return 100 + Math.random() * 900;
+      }
+    })();
+    
+    const prices = [basePrice];
+
+    for (let i = 1; i < 24; i++) {
+      const change = (Math.random() - 0.5) * 2 * volatility;
+      const newPrice = prices[i-1] * (1 + change);
+      prices.push(newPrice);
+    }
+
+    const lastPrice = prices[prices.length - 1];
+    const firstPrice = prices[0];
+    const high = Math.max(...prices);
+    const low = Math.min(...prices);
+    let marketCap;
+
+    switch (asset.type) {
+      case 'forex':
+        marketCap = lastPrice * (1e3 + Math.random() * 1e5);
+        break;
+      case 'crypto':
+        marketCap = lastPrice * (1e5 + Math.random() * 1e7);
+        break;
+      case 'stocks':
+        marketCap = lastPrice * (1e6 + Math.random() * 1e8);
+        break;
+      case 'indices':
+        marketCap = lastPrice * (1e7 + Math.random() * 1e9);
+        break;
+      default:
+        marketCap = lastPrice * (1e6 + Math.random() * 1e8);
+    }
+    
+    return {
+      currentPrice: lastPrice,
+      volume: Math.floor(Math.random() * 10000000),
+      change: lastPrice - firstPrice,
+      percentChange: ((lastPrice - firstPrice) / firstPrice * 100).toFixed(2),
+      prices: prices,
+      marketCap: marketCap,
+      high: high.toFixed(2),
+      low: low.toFixed(2),
+      rsi: this.calculateRSI(prices),
+      macd: this.calculateMACD(prices),
+      volumeProfile: this.calculateVolumeProfile(prices)
+    };
+  }
+
+  calculateRSI(prices) {
+    const gains = [];
+    const losses = [];
+    for (let i = 1; i < prices.length; i++) {
+      const change = prices[i] - prices[i - 1];
+      if (change > 0) gains.push(change);
+      else losses.push(Math.abs(change));
+    }
+    const avgGain = gains.length ? gains.reduce((a, b) => a + b) / gains.length : 0;
+    const avgLoss = losses.length ? losses.reduce((a, b) => a + b) / losses.length : 0;
+    return avgLoss === 0 ? 100 : 100 - (100 / (1 + (avgGain / avgLoss)));
+  }
+
+  calculateMACD(prices) {
+    const shortTermEMA = this.calculateEMA(prices, 12);
+    const longTermEMA = this.calculateEMA(prices, 26);
+    const macd = shortTermEMA - longTermEMA;
+    return macd;
+  }
+
+  calculateEMA(prices, period) {
+    const k = 2 / (period + 1);
+    let ema = prices[0];
+    for (let i = 1; i < prices.length; i++) {
+      ema = (prices[i] * k) + (ema * (1 - k));
+    }
+    return ema;
+  }
+
+  calculateVolumeProfile(prices) {
+    return Math.random() * 100; // Random value for demonstration
+  }
+
+  startDataRefresh() {
+    setInterval(() => this.updateAssetData(), REFRESH_INTERVALS.priceUpdate);
+  }
+
+  showAssetDetails(asset) {
+    if (!asset || !this.modal) return;
+
+    document.getElementById('asset-name').textContent = `${asset.name} (${asset.symbol})`;
+    
+    const priceFormatted = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD'
+    }).format(asset.currentPrice);
+
+    document.getElementById('asset-price').textContent = `Price: ${priceFormatted}`;
+    document.getElementById('asset-volume').textContent = `Volume: ${this.formatVolume(asset.volume)}`;
+    
+    const changeElement = document.getElementById('asset-change');
+    const changePrefix = asset.percentChange >= 0 ? '+' : '';
+    changeElement.textContent = `${changePrefix}${asset.percentChange}%`;
+    changeElement.style.color = asset.percentChange >= 0 ? '#4CAF50' : '#f44336';
+
+    const marketCapFormatted = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD'
+    }).format(asset.marketCap);
+    document.getElementById('asset-marketcap').textContent = `Market Cap: ${marketCapFormatted}`;
+    document.getElementById('percent-change').textContent = `(${asset.high} / ${asset.low})`;
+    
+    document.getElementById('asset-high').textContent = `High: $${asset.high}`;
+    document.getElementById('asset-low').textContent = `Low: $${asset.low}`;
+    document.getElementById('asset-rsi').textContent = `RSI: ${asset.rsi.toFixed(2)}`;
+    document.getElementById('asset-macd').textContent = `MACD: ${asset.macd.toFixed(2)}`;
+    document.getElementById('asset-volume-profile').textContent = `Volume Profile: ${asset.volumeProfile.toFixed(2)}`;
+
+    this.updatePriceChart(asset);
+    
+    this.modal.classList.add('active');
+  }
+
+  updatePriceChart(asset) {
+    const ctx = document.getElementById('priceChart').getContext('2d');
+    
+    if (this.chart) {
+      this.chart.destroy();
+    }
+
+    const labels = Array.from({length: asset.prices.length}, (_, i) => {
+      return `${23-i}h ago`;
+    }).reverse();
+
+    this.chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: asset.symbol,
+          data: asset.prices,
+          borderColor: asset.percentChange >= 0 ? '#4CAF50' : '#f44336',
+          backgroundColor: asset.percentChange >= 0 ? 'rgba(76, 175, 80, 0.1)' : 'rgba(244, 67, 54, 0.1)',
+          fill: true,
+          tension: 0.4
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: {
+          duration: 750,
+          easing: 'easeInOutQuart'
+        },
+        plugins: {
+          legend: {
+            display: false
+          },
+          tooltip: {
+            mode: 'index',
+            intersect: false,
+            backgroundColor: 'rgba(20, 22, 42, 0.9)',
+            titleColor: '#fff',
+            bodyColor: '#fff',
+            borderColor: 'rgba(255,255,255,0.1)',
+            borderWidth: 1,
+            padding: 10,
+            callbacks: {
+              label: (context) => {
+                return `${asset.symbol}: $${context.parsed.y.toFixed(2)}`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: {
+              display: false,
+              color: 'rgba(255,255,255,0.1)'
+            },
+            ticks: {
+              color: 'rgba(255,255,255,0.7)',
+              font: {
+                size: 10
+              }
+            }
+          },
+          y: {
+            grid: {
+              color: 'rgba(255,255,255,0.1)'
+            },
+            ticks: {
+              color: 'rgba(255,255,255,0.7)',
+              callback: (value) => `$${value.toFixed(2)}`,
+              font: {
+                size: 10
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  filterBubbles(button) {
+    const type = button.dataset.type;
+    document.querySelectorAll('.filter-btn').forEach(btn => 
+      btn.classList.toggle('active', btn === button)
+    );
+
+    this.bubbles.forEach((bubble, symbol) => {
+      const asset = assets.find(a => a.symbol === symbol);
+      bubble.render.visible = (type === 'all' || asset.type === type);
+    });
+  }
+
+  formatVolume(volume) {
+    if (volume >= 1e9) return `${(volume / 1e9).toFixed(1)}B`;
+    if (volume >= 1e6) return `${(volume / 1e6).toFixed(1)}M`;
+    if (volume >= 1e3) return `${(volume / 1e3).toFixed(1)}K`;
+    return volume.toString();
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  new BubbleMarket();
+});
+</script>
+</body></html>
